@@ -1,4 +1,4 @@
-from typing import Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable, Any
 
 @runtime_checkable
 class Bandit(Protocol):
@@ -13,3 +13,5 @@ class Bandit(Protocol):
     def select(self) -> int: ...
 
     def update(self, arm: int, reward: float) -> None: ...
+
+    def stats(self) -> dict[str, Any]: ...
