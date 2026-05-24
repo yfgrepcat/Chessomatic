@@ -15,7 +15,7 @@ def material_balance(board):
     for piece_type, value in PIECE_VALUES.items():                      
         score += len(board.pieces(piece_type, chess.WHITE)) * value     # Multiply the number of (piece_type) pieces by their value
         score -= len(board.pieces(piece_type, chess.BLACK)) * value     # Subtract the same for Black pieces to get the net material balance
-    return score                                
+    return score                               
 
 # Util to detect endgame phase
 def is_endgame(board):
@@ -28,4 +28,3 @@ def is_endgame(board):
         len(board.pieces(chess.KNIGHT, chess.BLACK))                    # Count total knights
     )
     return queens == 0 or minor_pieces <= 2                             # Consider endgame if no queens or very few minor pieces remaining  
-    

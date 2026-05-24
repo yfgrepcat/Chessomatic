@@ -1,6 +1,6 @@
 import multiprocessing as mp
 
-from training import run_training_session
+from experiments.training import run_training_session
 
 
 NUM_WORKERS = 4

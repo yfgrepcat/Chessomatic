@@ -4,13 +4,17 @@ import json
 import csv
 import glob
 import shutil
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from training import run_training_session
 
+BASE_DIR = Path(__file__).resolve().parent.parent
 
-BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+from experiments.training import run_training_session
 
 
 def reset_benchmark_artifacts():

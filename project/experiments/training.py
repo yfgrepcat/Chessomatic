@@ -3,19 +3,24 @@ import chess.engine
 import json
 import os
 import random
+import sys
 from pathlib import Path
+
+# Adjust if necessary to point to your personnal .venv bin directory
+BASE_DIR = Path(__file__).resolve().parent.parent              # Base directory of the project
+ENGINE_PATH = str(BASE_DIR / "bin" / "stockfish")       # Path to Stockfish bin 
+TIME_CONTROL = 60                                       # Seconds per player for sthe training games
+
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 from mab_agent import ChessMAB, sanitize_bandit_config
-from time_manager import Clock
-from opening_book import (
+from utils.time_manager import Clock
+from utils.opening_book import (
     load_openings,
     apply_random_opening,
     load_random_middlegame
 )
-
-# Adjust if necessary to point to your personnal .venv bin directory
-BASE_DIR = Path(__file__).resolve().parent              # Base directory of the project
-ENGINE_PATH = str(BASE_DIR / "bin" / "stockfish")       # Path to Stockfish bin 
-TIME_CONTROL = 60                                       # Seconds per player for sthe training games
 
 # Directories needed for logs and models to run training and benchmarking
 os.makedirs(BASE_DIR / "logs", exist_ok=True)
@@ -33,7 +38,7 @@ class DummyEngine:
     def __init__(self, skill_level=0): self.skill_level = skill_level           # The shill level used by model (ex. Stockfish level15)
     
     # Method needed to replicate Stockfish's configure method
-    def configure(self, cfg): pass                                                                                            
+    def configure(self, cfg): pass                                                                                                
 
     # Replicate Stockfish's play method
     def play(self, board, limit=None):
@@ -200,93 +205,11 @@ def run_training_session(
 
                     break
 
-            print(
-                f"[Worker {worker_id}] "
-                f"Result: {board.result()}"
-            )
-            # Append final game result to the log file for benchmarking/analysis
-            with open(log_file, "a") as f:
-                json.dump({"worker": worker_id, "game": game_id, "result": board.result()}, f)
-                f.write("\n")
-            if progress_callback:
-                progress_callback(game_id + 1, total_games, board.result())
+                if progress_callback:
+                    progress_callback(game_id + 1, total_games, None)
 
-            mab.save()
-
-    except KeyboardInterrupt:
-
-        print(
-            f"[Worker {worker_id}] "
-            f"Training interrupted."
-        )
-
-        mab.save()
-
-    engine.quit()
-
-
-def _parse_args():
-    import argparse
-
-    p = argparse.ArgumentParser(description="Run ChessMAB training or quick bandit dry-run.")
-    p.add_argument("--bandit-type", default="basic_linucb", help="basic_linucb or neural_linucb")
-    p.add_argument("--device", default="auto", help="device for neural bandit: auto|cpu|cuda|mps")
-    p.add_argument("--force-cpu", action="store_true", help="force CPU even if CUDA available")
-    p.add_argument("--simulate", action="store_true", help="run training with a dummy engine (no Stockfish required)")
-    p.add_argument("--games", type=int, default=20, help="number of games to run in training mode")
-    p.add_argument("--dry-run", action="store_true", help="quickly instantiate the agent and run a couple select/update ops (no engine plays)")
-    p.add_argument("--time-control", type=int, default=TIME_CONTROL)
-    p.add_argument("--stockfish-level", type=int, default=10)
-    return p.parse_args()
-
-
-if __name__ == "__main__":
-    args = _parse_args()
-
-    bandit_config = {"device": args.device, "force_cpu": bool(args.force_cpu)}
-    try:
-        bandit_config = sanitize_bandit_config(bandit_config)
-    except ValueError as e:
-        raise SystemExit(f"Invalid bandit_config: {e}")
-
-    if args.dry_run:
-        print("Dry-run: instantiating ChessMAB and running quick select/update checks")
-        engine = None
+    finally:
         try:
-            engine = chess.engine.SimpleEngine.popen_uci(ENGINE_PATH)
-            engine.configure({"Skill Level": args.stockfish_level})
-        except FileNotFoundError:
-            print("Warning: 'stockfish' not found in PATH; continuing without engine for dry-run.")
-
-        model_path = str(BASE_DIR / "models" / "dry_run.npz")
-        mab = ChessMAB(
-            engine,
-            model_path=model_path,
-            bandit_config=bandit_config,
-            bandit_type=args.bandit_type,
-        )
-        # quick smoke: extract features on a starting position and call select/update
-        board = chess.Board()
-        clock = Clock(args.time_control)
-        x = mab.extract_features(board, clock)
-        arm = mab.bandit.select_arm(x)
-        print("selected arm", arm)
-        mab.bandit.update(arm, x, reward=0.1)
-        print("update ok")
-        mab.save()
-        mab.load()
-        if engine is not None:
             engine.quit()
-        print("Dry-run completed")
-    else:
-        run_training_session(
-            worker_id=0,
-            total_games=args.games,
-            use_openings=False,
-            use_random_positions=True,
-            stockfish_level=args.stockfish_level,
-            time_control=args.time_control,
-            bandit_type=args.bandit_type,
-            bandit_config=bandit_config,
-            simulate=args.simulate,
-        )
+        except Exception:
+            pass
