@@ -1,6 +1,6 @@
 import multiprocessing as mp
 
-from training import run_training_session
+from experiments.training import run_training_session
 
 
 NUM_WORKERS = 4
@@ -13,6 +13,9 @@ STOCKFISH_LEVELS = [
     10,
     15
 ]
+
+BANDIT_TYPE = "basic_linucb"
+BANDIT_CONFIG = {}
 
 
 def worker(worker_id):
@@ -29,7 +32,11 @@ def worker(worker_id):
 
         stockfish_level=STOCKFISH_LEVELS[
             worker_id % len(STOCKFISH_LEVELS)
-        ]
+        ],
+
+        bandit_type=BANDIT_TYPE,
+
+        bandit_config=BANDIT_CONFIG,
     )
 
 

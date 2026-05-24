@@ -1,17 +1,24 @@
 import os
+import sys
 import json
 import time
 import glob
 import threading
 import subprocess
+from pathlib import Path
 from flask import Flask, request, jsonify, render_template
 import chess
 import chess.engine
 import pandas as pd
 
-from mab_agent import ChessMAB
-from time_manager import Clock
-from training import run_training_session
+ROOT_DIR = Path(__file__).resolve().parent.parent
+
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from mab_agent import ChessMAB, sanitize_bandit_config
+from utils.time_manager import Clock
+from experiments.training import run_training_session, DummyEngine
 
 app = Flask(__name__)
 
@@ -47,7 +54,18 @@ def update_training_progress(current, total, result):
     else:
         training_state["draws"] += 1
 
-ENGINE_PATH = "stockfish"
+ENGINE_PATH = str(ROOT_DIR / "bin" / "stockfish")
+
+
+def create_game_engine(skill_level: int):
+    """Create a chess engine for the GUI, falling back to DummyEngine when Stockfish is unavailable."""
+    try:
+        engine = chess.engine.SimpleEngine.popen_uci(ENGINE_PATH)
+        engine.configure({"Skill Level": skill_level})
+        return engine
+    except FileNotFoundError:
+        print("Warning: Stockfish not found; using DummyEngine in the GUI.")
+        return DummyEngine(skill_level=skill_level)
 
 @app.route("/")
 def index():
@@ -59,6 +77,8 @@ def start_game():
     mode = data.get("mode", "human_vs_mab")
     sf_level = int(data.get("sf_level", 10))
     time_control = data.get("time_control", 300)
+    bandit_type = data.get("bandit_type", "basic_linucb")
+    bandit_config = data.get("bandit_config", None)
     
     game_state["mode"] = mode
     game_state["sf_level"] = sf_level
@@ -74,10 +94,20 @@ def start_game():
         except:
             pass
             
-    game_state["engine"] = chess.engine.SimpleEngine.popen_uci(ENGINE_PATH)
-    game_state["engine"].configure({"Skill Level": sf_level})
+    game_state["engine"] = create_game_engine(sf_level)
     
-    game_state["mab"] = ChessMAB(game_state["engine"], model_path="models/final_model.npz")
+    try:
+        bandit_config = sanitize_bandit_config(bandit_config)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    model_path = os.path.join(ROOT_DIR, "models", "final_model.npz")
+    game_state["mab"] = ChessMAB(
+        game_state["engine"],
+        model_path=model_path,
+        bandit_type=bandit_type,
+        bandit_config=bandit_config,
+    )
     game_state["mab"].load()
     
     if mode == "human_vs_mab":
@@ -191,7 +221,7 @@ def auto_move():
     
 @app.route("/api/analysis", methods=["GET"])
 def get_analysis():
-    log_files = glob.glob("logs/games_worker_*.jsonl")
+    log_files = glob.glob(os.path.join(ROOT_DIR, "logs", "games_worker_*.jsonl"))
     rows = []
     for log_file in log_files:
         with open(log_file, "r") as f:
@@ -238,14 +268,31 @@ def run_train():
     games = int(data.get("games", 10))
     sf_level = int(data.get("sf_level", 10))
     time_control = int(data.get("time_control", 60))
+    bandit_type = data.get("bandit_type", "basic_linucb")
+    bandit_config = data.get("bandit_config", None)
     
     training_state.update({
         "is_training": True, "current_game": 0, "total_games": games,
         "wins": 0, "losses": 0, "draws": 0
     })
     
+    try:
+        bandit_config = sanitize_bandit_config(bandit_config)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
     def train_task():
-        run_training_session(worker_id=0, total_games=games, use_openings=True, use_random_positions=False, stockfish_level=sf_level, time_control=time_control, progress_callback=update_training_progress)
+        run_training_session(
+            worker_id=0,
+            total_games=games,
+            use_openings=True,
+            use_random_positions=False,
+            stockfish_level=sf_level,
+            time_control=time_control,
+            bandit_type=bandit_type,
+            bandit_config=bandit_config,
+            progress_callback=update_training_progress,
+        )
         training_state["is_training"] = False
     threading.Thread(target=train_task).start()
     return jsonify({"status": "started"})
@@ -265,7 +312,15 @@ def run_benchmark():
     benchmark_is_running = True
     def bench_task():
         global benchmark_is_running
-        subprocess.run(["python3", "benchmark.py"])
+        subprocess.run([
+            sys.executable,
+            os.path.join(ROOT_DIR, "experiments", "benchmark_simulate.py"),
+            "--simulate",
+            "--runs",
+            "1",
+            "--games-per-run",
+            "2",
+        ])
         benchmark_is_running = False
     threading.Thread(target=bench_task).start()
     return jsonify({"status": "started"})
@@ -274,7 +329,7 @@ def run_benchmark():
 def get_benchmarks():
     global benchmark_is_running
     try:
-        df = pd.read_csv("logs/benchmark_results.csv")
+        df = pd.read_csv(os.path.join(ROOT_DIR, "logs", "benchmark_results.csv"))
         return jsonify({
             "results": df.to_dict(orient="records"),
             "is_running": benchmark_is_running

@@ -1,15 +1,20 @@
 import json
 import glob
+from pathlib import Path
 
 import pandas as pd
 import matplotlib.pyplot as plt
+
+
+# Use project root as base so logs/models paths remain consistent
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 # ---------------------------------
 # Chargement de tous les logs
 # ---------------------------------
 
-log_files = glob.glob("logs/games_worker_*.jsonl")
+log_files = glob.glob(str(BASE_DIR / "logs" / "games_worker_*.jsonl"))
 
 rows = []
 

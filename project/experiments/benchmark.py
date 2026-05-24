@@ -1,10 +1,17 @@
 import chess
 import chess.engine
 import pandas as pd
+import sys
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
 from mab_agent import ChessMAB
-from time_manager import Clock
-from opening_book import load_openings, apply_random_opening
+from utils.time_manager import Clock
+from utils.opening_book import load_openings, apply_random_opening
 
 ENGINE_PATH = "stockfish"
 
@@ -98,8 +105,8 @@ for level in LEVELS:
         "winrate": wins / 5.0
     })
     
-    # Save incrementally
-    pd.DataFrame(RESULTS).to_csv("logs/benchmark_results.csv", index=False)
+    # Save incrementally to project logs
+    pd.DataFrame(RESULTS).to_csv(str(BASE_DIR / "logs" / "benchmark_results.csv"), index=False)
 
     engine.quit()
 
