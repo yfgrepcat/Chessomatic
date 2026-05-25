@@ -5,83 +5,73 @@ import pandas as pd
 import sys
 import shutil
 from pathlib import Path
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-
-if str(BASE_DIR) not in sys.path:
-    sys.path.insert(0, str(BASE_DIR))
-
 from mab_agent import ChessMAB
 from utils.time_manager import Clock
 from utils.opening_book import load_openings, apply_random_opening
 
+# Make sure python path is set to project root
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 ENGINE_PATH = shutil.which("stockfish") or str(BASE_DIR / "bin" / "stockfish")
 
-
+# Class used to run a benchmark of MAB vs Stockfish for a range of levels
 def run_benchmark(model_path, bandit_type, games_per_level, levels, time_control, use_openings):
-    results = []
-    openings = load_openings() if use_openings else []
+    results = []                                                    # Where the results of the bechmark will be stored
+    openings = load_openings() if use_openings else []              # Load openings if we want to use them
 
     for level in levels:
-
-        print(f"\n=== Benchmark vs SF Level {level} [{bandit_type}] ===")
-
+        print(f"\n=== Benchmark vs SF Level {level} [{bandit_type}] ===")       # For each level, we run games_per_level games against Stockfish at that level
         engine = chess.engine.SimpleEngine.popen_uci(ENGINE_PATH)
-        engine.configure({"Skill Level": level})
-
+        engine.configure({"Skill Level": level})                                # Set the level of Stockfish for this phase of the benchmark
         wins = 0
         losses = 0
         draws = 0
 
         try:
-            for game in range(games_per_level):
-
+            for game in range(games_per_level):                                 # For each game, we create a new board and play until the end of the game
+                                                                                # MAB to select moves for White and Stockfish to select moves for Black
                 print(f"Game {game + 1}/{games_per_level}")
-
                 board = chess.Board()
                 if use_openings:
                     board = apply_random_opening(board, openings)
 
-                mab = ChessMAB(
+                mab = ChessMAB(                                                 # Initialize the MAB agent
                     engine,
                     model_path=model_path,
                     bandit_type=bandit_type,
                 )
 
-                mab_clock = Clock(time_control)
+                mab_clock = Clock(time_control)                                 # Initialize the clock for Mab agent
 
-                while not board.is_game_over():
+                while not board.is_game_over():                                 # While game is not over
 
-                    if board.turn == chess.WHITE:
+                    if board.turn == chess.WHITE:                               # Mab to play, so we get the other (we do not care about others returned values)
                         move, *_ = mab.play(
                             board,
                             mab_clock,
                             training=False,
                         )
                     else:
-                        result = engine.play(
+                        result = engine.play(                                   # Stockfish to play
                             board,
                             chess.engine.Limit(depth=6)
                         )
-                        move = result.move
-
-                    board.push(move)
+                        move = result.move                                      # Get the move
+                    board.push(move)                                            # Play the move 
 
                     if mab_clock.flag():
                         print("MAB flagged.")
                         break
 
-                result = board.result()
+                result = board.result()                                         # Print result (1-0 White wins, 0-1 Black wins, or 1/2-1/2 Draw)
                 print("Result:", result)
 
-                if result == "1-0":
-                    wins += 1
-                elif result == "0-1":
-                    losses += 1
-                else:
-                    draws += 1
+                if result == "1-0": wins += 1                                   # From the point of wiew of the MAB
+                elif result == "0-1": losses += 1
+                else: draws += 1
 
-            results.append({
+            results.append({                                                    # Appends the results of this level to the list and then to a csv file
                 "bandit_type": bandit_type,
                 "model_path": model_path,
                 "level": level,
@@ -91,18 +81,19 @@ def run_benchmark(model_path, bandit_type, games_per_level, levels, time_control
                 "draws": draws,
                 "winrate": wins / float(games_per_level),
             })
-
-            csv_path = BASE_DIR / "logs" / f"benchmark_results_{bandit_type}.csv"
+            csv_path = BASE_DIR / "logs" / f"benchmark_results_{bandit_type}.csv"   
             pd.DataFrame(results).to_csv(str(csv_path), index=False)
 
         finally:
-            engine.quit()
+            engine.quit()                                                       # Quit properly Stockfish engine 
 
     print("\n=== FINAL RESULTS ===\n")
     print(pd.DataFrame(results))
 
-
+# Main method to parse arguments and start the benchmark
 if __name__ == "__main__":
+
+    # Parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", default=str(BASE_DIR / "models" / "final_model.npz"))
     parser.add_argument("--bandit-type", default="basic_linucb", choices=["basic_linucb", "neural_linucb"])
@@ -112,6 +103,7 @@ if __name__ == "__main__":
     parser.add_argument("--no-openings", action="store_true")
     args = parser.parse_args()
 
+    # Run benchmark 
     run_benchmark(
         model_path=args.model_path,
         bandit_type=args.bandit_type,
