@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 
 
-# Rewardnetwork is a simple neural network that takes features of the chess context and output lattent reprensentation
 class RewardNetwork(nn.Module):
     # Method to initialize the network with one hidden layer by default and ReLU activation
     def __init__(self, input_dim: int, hidden_sizes=(32,), repr_dim: int = 16):
@@ -116,24 +115,40 @@ class NeuralLinUCB:
         )  # Replay memory of played actions for training
         self._update_steps = 0  # Counter to schedule training, every train_every steps
 
-    # Method to resolve on wich device to run the encoder
     @staticmethod
     def _resolve_device(device: str, force_cpu: bool):
+        """ This method checks the provided device string and the availability 
+        of CUDA to determine whether to use CPU or GPU for computations.
+        :param device: A string indicating the desired device ('auto', 'cpu', 'cuda', 'mps')
+        :type device: str
+        :param force_cpu: A boolean flag that, if True, forces the use of CPU even if a GPU is available. Defaults to False.
+        :type force_cpu: bool
+        :return: A torch.device object representing the selected device for computations.
+        :rtype: torch.device
+        """
         if force_cpu:
             return torch.device("cpu")  # Force CPU when requested
         if device == "cpu":
-            return torch.device("cpu")  # Explicit CPU
+            return torch.device("cpu")
         if device == "cuda":
             return torch.device(
                 "cuda" if torch.cuda.is_available() else "cpu"
-            )  # Prefer CUDA if available
+            )
+        # Try cuda if available and no cpu or cuda requested
         if torch.cuda.is_available():
             return torch.device("cuda")
-        return torch.device("cpu")  # Otherwise CPU
+        # Otherwise CPU
+        return torch.device("cpu")
 
-    # Helper method to flatten the 7 input features into a 1D vector. Prepare feature vector for encoder
-    # Convern imput info a NumPy 1D array of shape (n_features,) with dtype float32
     def _flatten_context(self, x) -> np.ndarray:
+        """ Flattens the input context into a 1D NumPy array of type float32,
+        ensuring it has the correct shape for the encoder.
+        :param x: The input context features.
+        :type x: np.ndarray
+        :raises ValueError: If the input context has an incorrect shape.
+        :return: The flattened context as a 1D NumPy array.
+        :rtype: np.ndarray
+        """
         arr = np.asarray(x, dtype=np.float32).reshape(
             -1
         )  # Convert into NumPy array, force float32,flatten to 1D
@@ -145,8 +160,15 @@ class NeuralLinUCB:
             )
         return arr
 
-    # Method to encode the flattened context into latent representation
     def _encode_numpy(self, x1d: np.ndarray) -> np.ndarray:
+        """ Encodes the flattened context vector into a latent 
+        representation using the neural network encoder.
+        
+        :param x1d: A 1D NumPy array containing the context features, with shape (n_features,) and dtype float32. This is the output of the _flatten_context method, which prepares the raw context for encoding.
+        :type x1d: np.ndarray
+        :return: A 1D torch tensor containing the latent representation of the input context, with shape (repr_dim,).
+        :rtype: np.ndarray
+        """
         t = (
             torch.from_numpy(x1d).float().unsqueeze(0).to(self.device)
         )  # PyToroch tensor shared in memory
@@ -156,8 +178,17 @@ class NeuralLinUCB:
             )  # Transform in column vector (repr_dim, 1) for matrix operations in LinUCB
         return z
 
-    # Method to select an arm given a context x, return an int representing the chosen arm
-    def select_arm(self, x) -> int:
+    def select_arm(self, x: np.ndarray) -> int:
+        """ Selects an arm based on the current context x using the UCB strategy.
+        The method first encodes the context into a latent representation using the 
+        neural network, then computes the UCB score for each arm based on the estimated 
+        reward and uncertainty, and finally selects the arm with the highest UCB score.
+
+        :param x: The context features associated with the action taken, which will be used to update the model. This should be in the same format as the input to select_arm (e.g., a list or array of features).
+        :type x: np.ndarray
+        :return: The index of the selected arm.
+        :rtype: int
+        """
         x1d = self._flatten_context(
             x
         )  # Flatten the context to 1D vector (n_features,) for the encoder
@@ -166,25 +197,37 @@ class NeuralLinUCB:
         )  # Encode context to latent representation z (repr_dim, 1)
         scores = np.zeros(self.n_arms, dtype=np.float64)
         for arm in range(self.n_arms):  # For each arm:
-            theta = self.A_inv[arm] @ self.b[arm]  #   - Compute estimated weight vector
+            theta = self.A_inv[arm] @ self.b[arm]  # Compute estimated weight vector
             mean_reward = float(
                 (theta.T @ z).item()
-            )  #   - Compute mean reward for the arm using the current model (exploitation)
+            )  # Compute mean reward for the arm using the current model (exploitation)
             uncertainty = np.sqrt(
                 (z.T @ self.A_inv[arm] @ z).item()
-            )  #   - Compute uncertainty for the arm
+            )  # Compute uncertainty for the arm
             scores[arm] = (
                 mean_reward + self.alpha * uncertainty
-            )  #   Compute final UCB score for the arm
+            )  # Compute final UCB score for the arm
 
         max_score = np.max(scores)
         best_arms = [i for i, v in enumerate(scores) if v == max_score]
         import random
 
-        return int(random.choice(best_arms))  # choose random arm among highest scores
+        return int(random.choice(best_arms)) # choose random arm among highest scores
 
-    # Method to update the model parameters after observing a reward for an arm given a context
-    def update(self, arm: int, x, reward: float):
+    def update(self, arm: int, x: np.ndarray, reward: float):
+        """Updates the model parameters based on the observed reward for 
+        a given arm and context. This method performs a rank-1 update of 
+        the inverse covariance matrix A_inv for the selected arm using the 
+        Sherman-Morrison formula, updates the reward vector b for that arm, 
+        and stores the experience in the replay buffer for future training of the encoder.
+
+        :param arm: The index of the arm that was selected and for which the reward was observed
+        :type arm: int
+        :param x: The context features associated with the action taken, which will be used to update the model. This should be in the same format as the input to select_arm (e.g., a list or array of features).
+        :type x: list or np.ndarray
+        :param reward: The reward received for taking the action corresponding to the selected arm in the given context. This should be a numerical value (float) that represents the outcome of the action.
+        :type reward: float
+        """
         x1d = self._flatten_context(x)  # Prepare context
         z = self._encode_numpy(x1d)  # Encode to latent
         # Sherman-Morrison rank-1 update for A_inv (efficient inverse update)
@@ -201,8 +244,13 @@ class NeuralLinUCB:
         ):
             self._train_step()
 
-    # Method to perform one training step on the neural network using past experiences from the replay buffer
     def _train_step(self):
+        """
+        Performs a training step on the encoder network using a mini-batch of past experiences 
+        from the replay buffer. This method samples a batch of (context, arm, reward) tuples, 
+        computes the predicted rewards using the current encoder and LinUCB parameters, and updates 
+        the encoder weights to minimize the prediction error.
+        """
         batch = random.sample(
             self.buffer, self.batch_size
         )  # Sample a mini-batch of past experiences
@@ -241,9 +289,12 @@ class NeuralLinUCB:
         )  # Clip gradients for stability
         self.optimizer.step()
 
-    # Method to save the full model state to a file.
-    # This stores the neural network, the optimizer, and the LinUCB matrices.
     def save(self, path: str):
+        """ Saves the model state to a file, including the neural network weights, optimizer state, and LinUCB parameters.
+
+        :param path: Path to save the model file
+        :type path: str
+        """
         payload = {
             "encoder_state": self.neural_network.state_dict(),  # Neural network weights
             "optimizer_state": self.optimizer.state_dict(),  # Optimizer state
@@ -254,11 +305,14 @@ class NeuralLinUCB:
             "repr_dim": self.repr_dim,
             "alpha": self.alpha,
         }
-        torch.save(payload, path)  # Save everything in one file
+        torch.save(payload, path) # Save everything in one file
 
-    # Method to load a previously saved model state.
-    # If some fields are missing, the current values are kept.
     def load(self, path: str):
+        """ Loads the model state from a file, restoring the neural network, optimizer, and LinUCB parameters.
+
+        :param path: Path to the saved model file
+        :type path: str
+        """
         try:
             payload = torch.load(
                 path, map_location=self.device, weights_only=False
