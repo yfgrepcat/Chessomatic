@@ -52,7 +52,7 @@ class NeuralLinUCB:
         lr: float = 1e-3,                   # Learning rate for the encoder network
         ridge_lambda: float = 1.0,          # Regularization (ridge) for the linear part; affects init scale of A_inv
         batch_size: int = 32,               # Number of past training examples sampled at once from the replay buffer
-        train_every: int = 10,              # Perform a training step every N updates
+        train_every: int = 5,              # Perform a training step every N updates
         replay_size: int = 10000,           # Maximum size of the replay buffer
         seed: int = 42,                     # Random seed for reproducibility
         device: str = "auto",               # Device hint for torch: 'auto'|'cpu'|'cuda'|'mps'
@@ -175,7 +175,10 @@ class NeuralLinUCB:
     # Method to load a previously saved model state.
     # If some fields are missing, the current values are kept.
     def load(self, path: str):
-        payload = torch.load(path, map_location=self.device)  # Load the checkpoint on the selected device
+        try:
+            payload = torch.load(path, map_location=self.device, weights_only=False)  # Load trusted checkpoint state
+        except TypeError:
+            payload = torch.load(path, map_location=self.device)  # Backward compatibility with older PyTorch versions
         if "encoder_state" in payload:
             self.neural_network.load_state_dict(payload["encoder_state"])  # Restore neural network weights
         if "optimizer_state" in payload:

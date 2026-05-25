@@ -3,6 +3,7 @@ import chess.engine
 import argparse
 import pandas as pd
 import sys
+import shutil
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -14,7 +15,7 @@ from mab_agent import ChessMAB
 from utils.time_manager import Clock
 from utils.opening_book import load_openings, apply_random_opening
 
-ENGINE_PATH = "stockfish"
+ENGINE_PATH = shutil.which("stockfish") or str(BASE_DIR / "bin" / "stockfish")
 
 
 def run_benchmark(model_path, bandit_type, games_per_level, levels, time_control, use_openings):
