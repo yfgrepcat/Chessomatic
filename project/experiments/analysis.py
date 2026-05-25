@@ -1,174 +1,139 @@
+import argparse
 import json
 import glob
 from pathlib import Path
-
 import pandas as pd
 import matplotlib.pyplot as plt
 
+# Script used to analyse in a terminal the results of benchmark and training sessions
 
-# Use project root as base so logs/models paths remain consistent
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
-# ---------------------------------
-# Chargement de tous les logs
-# ---------------------------------
-
-log_files = glob.glob(str(BASE_DIR / "logs" / "games_worker_*.jsonl"))
-
-rows = []
-
-for log_file in log_files:
-
-    with open(log_file, "r") as f:
-
-        for line in f:
-
-            line = line.strip()
-
-            if not line:
-                continue
-
-            rows.append(json.loads(line))
-
-
-# ---------------------------------
-# DataFrame
-# ---------------------------------
-
-df = pd.DataFrame(rows)
-
-print("\nLoaded rows:")
-print(len(df))
-
-print("\nColumns:")
-print(df.columns)
-
-print("\nHead:")
-print(df.head())
-
-
-# ---------------------------------
-# Reward moyen
-# ---------------------------------
-
-print("\nAverage reward:")
-print(df["reward"].mean())
-
-
-# ---------------------------------
-# Distribution des bras
-# ---------------------------------
-
-print("\nArm distribution:")
-print(df["arm"].value_counts())
-
-
-# ---------------------------------
-# Temps moyen par bras
-# ---------------------------------
-
-print("\nAverage elapsed time by arm:")
-print(
-    df.groupby("arm")["elapsed"].mean()
-)
-
-
-# ---------------------------------
-# Temps moyen par niveau Stockfish
-# ---------------------------------
-
-print("\nAverage reward by Stockfish level:")
-
-print(
-    df.groupby("stockfish_level")["reward"].mean()
-)
-
-
-# ---------------------------------
-# Reward rolling
-# ---------------------------------
-
-plt.figure(figsize=(12, 6))
-
-rolling_reward = (
-    df["reward"]
-    .rolling(100)
-    .mean()
-)
-
-plt.plot(rolling_reward)
-
-plt.title("Rolling Reward")
-
-plt.xlabel("Move")
-
-plt.ylabel("Reward")
-
-plt.grid()
-
-plt.show()
-
-
-# ---------------------------------
-# Distribution des bras
-# ---------------------------------
-
-plt.figure(figsize=(8, 5))
-
-df["arm"] \
-    .value_counts() \
-    .sort_index() \
-    .plot(kind="bar")
-
-plt.title("Arm Usage")
-
-plt.xlabel("Arm")
-
-plt.ylabel("Count")
-
-plt.grid()
-
-plt.show()
-
-
-# ---------------------------------
-# Temps moyen par bras
-# ---------------------------------
-
-plt.figure(figsize=(8, 5))
-
-df.groupby("arm")["elapsed"] \
-    .mean() \
-    .plot(kind="bar")
-
-plt.title("Average Thinking Time by Arm")
-
-plt.xlabel("Arm")
-
-plt.ylabel("Seconds")
-
-plt.grid()
-
-plt.show()
-
-
-# ---------------------------------
-# Reward par niveau
-# ---------------------------------
-
-plt.figure(figsize=(8, 5))
-
-df.groupby("stockfish_level")["reward"] \
-    .mean() \
-    .plot(kind="bar")
-
-plt.title("Average Reward vs Stockfish Level")
-
-plt.xlabel("Stockfish Level")
-
-plt.ylabel("Reward")
-
-plt.grid()
-
-plt.show()
+def _resolve_log_files(log_file=None, log_pattern="logs/games_worker_*.jsonl"):
+    if log_file:
+        candidate = Path(log_file)
+        if candidate.is_file():
+            return [str(candidate.resolve())]
+
+        if not candidate.is_absolute():
+            project_candidate = BASE_DIR / candidate
+            if project_candidate.is_file():
+                return [str(project_candidate.resolve())]
+
+        raise FileNotFoundError(f"Log file not found: {candidate}")
+
+    pattern = log_pattern
+    if not Path(pattern).is_absolute():
+        pattern = str(BASE_DIR / pattern)
+    return sorted(glob.glob(pattern))
+
+
+def analyse_results(log_file=None, log_pattern="logs/games_worker_*.jsonl"):
+    # Load either one explicit log file or all matching worker logs.
+
+    log_files = _resolve_log_files(log_file=log_file, log_pattern=log_pattern)
+    if not log_files:
+        print("No log files found.")
+        return
+
+    rows = []
+    for log_file in log_files:
+        with open(log_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                rows.append(json.loads(line))
+
+    # Dataframe used to store and analyze the results
+    df = pd.DataFrame(rows)
+    if df.empty:
+        print("No data found in the selected log file(s).")
+        return
+
+    print("\nLoaded rows:")
+    print(len(df))
+    print("\nColumns:")
+    print(df.columns)
+    print("\nHead:")
+    print(df.head())
+
+    # Statistics and visualizations of the results
+    print("\nAverage reward:")
+    print(df["reward"].mean())
+
+    print("\nArm distribution:")
+    print(df["arm"].value_counts())
+
+    print("\nAverage elapsed time by arm:")
+    print(df.groupby("arm")["elapsed"].mean())
+
+    print("\nAverage reward by Stockfish level:")
+    print(df.groupby("stockfish_level")["reward"].mean())
+
+    # Graph of the rolling average reward over time (window 100 moves)
+    plt.figure(figsize=(12, 6))
+    rolling_reward = (
+        df["reward"]
+        .rolling(100)
+        .mean()
+    )
+    plt.plot(rolling_reward)
+    plt.title("Rolling Reward")
+    plt.xlabel("Move")
+    plt.ylabel("Reward")
+    plt.grid()
+    plt.show()
+
+    # Graph of the distribution of arms used during the games
+    plt.figure(figsize=(8, 5))
+    df["arm"] \
+        .value_counts() \
+        .sort_index() \
+        .plot(kind="bar")
+    plt.title("Arm Usage")
+    plt.xlabel("Arm")
+    plt.ylabel("Count")
+    plt.grid()
+    plt.show()
+
+    # Graph of the average thinking time by arm
+    plt.figure(figsize=(8, 5))
+    df.groupby("arm")["elapsed"] \
+        .mean() \
+        .plot(kind="bar")
+    plt.title("Average Thinking Time by Arm")
+    plt.xlabel("Arm")
+    plt.ylabel("Seconds")
+    plt.grid()
+    plt.show()
+
+    # Graph of average reward by Stockfish level
+    plt.figure(figsize=(8, 5))
+    df.groupby("stockfish_level")["reward"] \
+        .mean() \
+        .plot(kind="bar")
+    plt.title("Average Reward vs Stockfish Level")
+    plt.xlabel("Stockfish Level")
+    plt.ylabel("Reward")
+    plt.grid()
+    plt.show()
+
+# Main method to parse arguments and start analysis
+if __name__ == "__main__":
+
+    # Parse arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--log-file",
+        help="Analyze a single log file instead of all worker logs.",
+    )
+    parser.add_argument(
+        "--log-pattern",
+        default="logs/games_worker_*.jsonl",
+        help="Glob pattern used when --log-file is not provided.",
+    )
+    args = parser.parse_args()
+
+    # Run analysis
+    analyse_results(log_file=args.log_file, log_pattern=args.log_pattern)
