@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Smoke test: instantiate ChessMAB with neural_linucb and run select/update cycle.
 
 Run with: python3 project/tests/smoke_neural.py
