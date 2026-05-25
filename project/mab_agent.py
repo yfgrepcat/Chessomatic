@@ -196,38 +196,38 @@ class ChessMAB:
         board.push(move)
         score_after = self.evaluate(board, depth=8) # Evaluate the position after playing the move (Perspective: Joueur B)
         board.pop() # Undo the move to restore the original position (for other move evaluations)
+        # delta_wdl is the change in White's WDL probability; naturally bounded in [-1, +1].
+        # Quality and terminal both live on the same [-1, +1] scale so neither dominates by magnitude alone.
         delta_wdl = (1.0 - score_after) - score_before # On ajuste car score_after est du point de vue de B. 1 - score_after redonne la probabilité pour A.
-        quality = delta_wdl * 10.0 # Normalize the reward by a factor 10 to give more weight to the move
-        # Capped per-move time penalty referenced to 1.5s so it's meaningful per move
-        # (the previous game-time-normalized penalty was an order of magnitude too small to differentiate arms).
-        time_penalty = 0.5 * min(elapsed / 1.5, 1.0)
-        reward = (
-            2.0 * quality
-            - time_penalty
-        )
+        # Time penalty capped at 0.1 -- earlier 0.5 cap was ~5x larger than the typical quality
+        # difference between arms, which made the bandit prefer "always play fast" even when
+        # longer thinking produced measurably better moves.
+        time_penalty = 0.1 * min(elapsed / 1.5, 1.0)
+        reward = delta_wdl - time_penalty
         return reward
 
     def compute_terminal_reward(self, board: chess.Board, clock_flagged: bool = False) -> float:
         """ Terminal reward from White's perspective, called once per game when the game has ended.
         clock_flagged=True overrides the result and applies the loss-on-time penalty,
         since python-chess does not know about our custom Clock.
+        Rescaled to +-1.0 to live on the same scale as per-move delta_wdl.
 
         :param board: Final chess board state at game end.
         :type board: chess.Board
         :param clock_flagged: True if the MAB clock ran out, defaults to False
         :type clock_flagged: bool, optional
-        :return: +2.0 White win, -2.0 White loss (or flag), 0.0 draw / not yet over.
+        :return: +1.0 White win, -1.0 White loss (or flag), 0.0 draw / not yet over.
         :rtype: float
         """
         if clock_flagged:
-            return -2.0
+            return -1.0
         if not board.is_game_over(claim_draw=True):
             return 0.0
         result = board.result(claim_draw=True)
         if result == "1-0":
-            return 2.0
+            return 1.0
         if result == "0-1":
-            return -2.0
+            return -1.0
         return 0.0
 
     def play(self, board, clock, training=True) -> tuple[chess.Move, int, float, float, float, np.ndarray]:
