@@ -141,7 +141,7 @@ class ChessMAB:
             #   - wdl = 1.0: player has a winning position
             #   - wdl = 0.0: player has a losing position
             #   - wdl = 0.5: Balanced position 
-            # TODO : Explain each part of 1.0 / (1.0 + 10.0 ** (-eval_cp / 400.0))
+            # TODO : Explain each part of 1.0 / (1.0 + 10.0 ** (-eval_cp / 400.0)) in rapport
         return wdl
 
     def extract_features(self, board, clock):
