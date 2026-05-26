@@ -82,9 +82,7 @@ $('#gameMode').change(function() {
     }
 });
 
-// ─────────────────────────────────────────────
-//  Worker Selection Logic
-// ─────────────────────────────────────────────
+// Worker Selection Logic
 
 /**
  * Fetch available workers for a given bandit type and populate a <select>.
@@ -171,9 +169,7 @@ $('#trainWorkerSelect').change(function() {
     }
 });
 
-// ─────────────────────────────────────────────
-//  Chess Board
-// ─────────────────────────────────────────────
+// Chess Board
 
 function onDragStart (source, piece, position, orientation) {
   if (!isPlaying || isAgentThinking || game.game_over()) return false;
@@ -199,9 +195,7 @@ const config = {
 
 board = Chessboard('board', config);
 
-// ─────────────────────────────────────────────
-//  Game Start
-// ─────────────────────────────────────────────
+// Game Start
 
 $('#startBtn').click(() => {
     currentMode = $('#gameMode').val();
@@ -244,9 +238,7 @@ $('#startBtn').click(() => {
     });
 });
 
-// ─────────────────────────────────────────────
-//  Moves
-// ─────────────────────────────────────────────
+// Moves
 
 function sendHumanMove(uci) {
     if (currentMode !== "human_vs_mab") return;
@@ -322,9 +314,7 @@ function addHistoryItem(player, move, time="", arm="") {
     $history.prepend(`<div class="history-item"><span><strong>${player}</strong>: ${move}</span>${timeStr}</div>`);
 }
 
-// ─────────────────────────────────────────────
-//  Tabs
-// ─────────────────────────────────────────────
+// Tabs
 
 $('.tab-btn').click(function() {
     $('.tab-btn').removeClass('active'); $(this).addClass('active');
@@ -336,9 +326,7 @@ $('.tab-btn').click(function() {
 $('#refreshAnalysis').click(loadAnalysis);
 $('#refreshBench').click(loadBenchmarks);
 
-// ─────────────────────────────────────────────
-//  Training
-// ─────────────────────────────────────────────
+// Training
 
 let trainPollInterval = null;
 
@@ -402,9 +390,7 @@ $('#startTrainBtn').click(() => {
     });
 });
 
-// ─────────────────────────────────────────────
-//  Benchmark
-// ─────────────────────────────────────────────
+// Benchmark
 
 $('#runBenchBtn').click(() => {
     const banditType = $('#benchBanditType').val();
@@ -422,9 +408,7 @@ $('#runBenchBtn').click(() => {
     });
 });
 
-// ─────────────────────────────────────────────
-//  Analysis
-// ─────────────────────────────────────────────
+// Analysis
 
 function loadAnalysis() {
     const workerId = $('#analysisWorkerSelect').val();
@@ -539,9 +523,7 @@ function loadTrainingChart() {
     });
 }
 
-// ─────────────────────────────────────────────
-//  Benchmarks Loading
-// ─────────────────────────────────────────────
+// Benchmarks Loading
 
 let benchPollInterval = null;
 

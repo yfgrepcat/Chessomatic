@@ -337,10 +337,6 @@ def run_train():
     if bandit_type == "neural_linucb" and not worker_id.endswith("_neural"):
         worker_id += "_neural"
 
-    # Strip the suffix for the worker_id passed to training session
-    # because training session appends suffix itself? Wait.
-    # Actually training.py uses `worker_tag` directly in `models/worker_{worker_tag}.npz`.
-    # So we just pass the exact worker_id!
     
     training_state.update({
         "is_training": True, "current_game": 0, "total_games": games,
