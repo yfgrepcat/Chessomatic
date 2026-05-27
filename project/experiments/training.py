@@ -149,8 +149,8 @@ def run_training_session(
                 if pending is None:
                     return
                 arm_p, x_p, reward_p, log_p = pending
-                if flagged or board.is_game_over(claim_draw=True):
-                    reward_p += mab.compute_terminal_reward(board, clock_flagged=flagged)
+                # if flagged or board.is_game_over(claim_draw=True):
+                #     reward_p += mab.compute_terminal_reward(board, clock_flagged=flagged)
                 log_p["reward"] = reward_p
                 mab.bandit.update(arm_p, x_p, reward_p)
                 with open(log_file, "a") as f:
