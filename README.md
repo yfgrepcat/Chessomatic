@@ -22,68 +22,43 @@ rm -rf "$tmpdir"
 python project/gui/app.py
 ```
 
-## Run training 
+## Run the Workflow
 
-### Basic LinUCB : Stockfish niveau 3, 100 parties
+### 1. Training (with Auto-Checkpointing)
 
+Train the MAB agent. The system automatically creates `.npz` model checkpoints in `project/models/checkpoints/` every 10 games.
+
+**Basic LinUCB (100 games vs Stockfish level 5):**
 ```bash
-python project/experiments/training.py --bandit-type basic_linucb  --total-games 100 --worker-id worker_p100_sf3_basic
+python project/experiments/training.py --bandit-type basic_linucb --total-games 100 --stockfish-level 5 --time-control 30
 ```
 
-### Neural LinUCB : Stockfish niveau 3, 100 parties
-
+**Neural LinUCB (100 games vs Stockfish level 10):**
 ```bash
-python project/experiments/training.py --bandit-type neural_linucb  --total-games 100 --worker-id worker_p100_sf3_neural
+python project/experiments/training.py --bandit-type neural_linucb --total-games 100 --stockfish-level 10 --time-control 30
 ```
 
-### Basic LinUCB : Stockfish niveau 3, 450 parties
+### 2. Evaluating Checkpoints
+
+Once training has generated checkpoints, evaluate them across multiple opponent difficulty levels to generate a learning curve.
+This will output results to `project/logs/eval_results.csv`.
 
 ```bash
-python project/experiments/training.py --bandit-type basic_linucb  --total-games 450 --worker-id worker_p450_sf3_basic
+python project/experiments/evaluate_checkpoints.py --games 5 --time-control 30
 ```
 
-### Neural LinUCB : Stockfish niveau 3, 450 parties
+### 3. Generating Analysis
+
+Generate learning curves and plot the MAB's arm selection distribution using the newly collected benchmark data.
 
 ```bash
-python project/experiments/training.py --bandit-type neural_linucb  --total-games 450 --worker-id worker_p450_sf3_neural
+python project/experiments/analysis.py
 ```
 
-### Basic LinUCB : Stockfish niveau 10, 450 parties
+### 4. Running a Specific Benchmark Match
+
+If you want to run a one-off match to test a specific model without running the full checkpoint evaluation suite:
 
 ```bash
-python project/experiments/training.py --bandit-type basic_linucb  --total-games 450 --worker-id worker_p450_sf10_basic --stockfish-level 10
-```
-
-### Neural LinUCB : Stockfish niveau 10, 450 parties
-
-```bash
-python project/experiments/training.py --bandit-type neural_linucb  --total-games 450 --worker-id worker_p450_sf10_neural --stockfish-level 10
-```
-
-## Run Benchmark 
-
-### Basic LinUCB
-
-```bash
-python project/experiments/benchmark.py --bandit-type basic_linucb --model-path project/models/worker_runtest_yo.npz 
-```
-
-### Neural LinUCB 
-
-```bash
-python project/experiments/benchmark.py --bandit-type neural_linucb --model-path project/models/worker_runtest_yo_neural.npz
-```
-
-## Run Analysis
-
-### Basic LinUCB
-
-```bash
-./.venv/bin/python project/experiments/analysis.py   --log-file project/logs/games_worker_runtest_yo.jsonl 
-```
-
-### Neural LinUCB 
-
-```bash
-./.venv/bin/python project/experiments/analysis.py   --log-file project/logs/games_worker_runtest_yo_neural.jsonl 
+python project/experiments/benchmark.py --bandit-type basic_linucb --model-path project/models/checkpoints/0_10.npz --time-control 30
 ```
