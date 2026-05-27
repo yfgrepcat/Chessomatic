@@ -27,13 +27,13 @@ python project/gui/app.py
 ### Basic LinUCB : agent Stockfish niveau 10 vs adversaire niveau 10, 100 parties
 
 ```bash
-python project/experiments/training.py --bandit-type basic_linucb --total-games 100 --worker-id p100_sf10_basic --agent-stockfish-level 10 --opponent-stockfish-level 10 --checkpoint-interval 10
+python project/experiments/training.py --bandit-type basic_linucb --total-games 100 --worker-id p100_sf10_basic --agent-stockfish-level 10 --opponent-stockfish-level 10
 ```
 
 ### Neural LinUCB : agent Stockfish niveau 10 vs adversaire niveau 10, 100 parties
 
 ```bash
-python project/experiments/training.py --bandit-type neural_linucb --total-games 100 --worker-id p100_sf10_neural --agent-stockfish-level 10 --opponent-stockfish-level 10 --checkpoint-interval 10
+python project/experiments/training.py --bandit-type neural_linucb --total-games 100 --worker-id p100_sf10_neural --agent-stockfish-level 10 --opponent-stockfish-level 10
 ```
 
 ## Run Benchmark 
@@ -48,12 +48,6 @@ python project/experiments/benchmark.py --bandit-type basic_linucb --model-path 
 
 ```bash
 python project/experiments/benchmark.py --bandit-type neural_linucb --model-path project/models/worker_p100_sf10_neural.npz --agent-stockfish-level 10 --levels 5 8 10 12
-```
-
-## Evaluate Checkpoints
-
-```bash
-python project/experiments/evaluate_checkpoints.py --run p100_sf10_basic --bandit-type basic_linucb --games-per-level 2 --levels 5 8 10 12
 ```
 
 ## Run Analysis

@@ -30,7 +30,6 @@ TIME_CONTROL = 60                                       # Seconds per player for
 # Directories needed for logs and models to run training and benchmarking
 os.makedirs(BASE_DIR / "logs", exist_ok=True)
 os.makedirs(BASE_DIR / "models", exist_ok=True)
-os.makedirs(BASE_DIR / "models" / "checkpoints", exist_ok=True)
 
 # DummyEngine just for smoke test and when Stockfish is not installed
 # Same method signature as chess.engine.SimpleEngine    
@@ -80,7 +79,6 @@ def run_training_session(
     bandit_type="basic_linucb",
     bandit_config=None,
     simulate=False,
-    checkpoint_interval=10,
     outcome_reward_scale=0.2,
     progress_callback=None
 ):
@@ -88,7 +86,6 @@ def run_training_session(
     worker_tag = str(worker_id)                                                     # Tag for the worker
     log_file = str(BASE_DIR / "logs" / f"games_worker_{worker_tag}.jsonl")          # Log file path
     model_path = str(BASE_DIR / "models" / f"worker_{worker_tag}.npz")              # Model file path
-    checkpoint_dir = BASE_DIR / "models" / "checkpoints"
     opponent_stockfish_level = (
         stockfish_level if opponent_stockfish_level is None else opponent_stockfish_level
     )
@@ -127,18 +124,6 @@ def run_training_session(
         if result == "0-1":
             return -1.0, result
         return 0.0, result
-
-    def _save_checkpoint(completed_games):
-        if checkpoint_interval <= 0:
-            return
-        if completed_games % checkpoint_interval != 0 and completed_games != total_games:
-            return
-        checkpoint_path = checkpoint_dir / f"{worker_tag}_{completed_games}.npz"
-        try:
-            shutil.copy2(model_path, checkpoint_path)
-            print(f"[Worker {worker_tag}] Checkpoint saved: {checkpoint_path}")
-        except Exception as e:
-            print(f"[Worker {worker_tag}] Warning: could not save checkpoint {completed_games}: {e}")
 
     agent_engine = _create_engine(agent_stockfish_level, "agent")
     opponent_engine = _create_engine(opponent_stockfish_level, "opponent")
@@ -287,9 +272,7 @@ def run_training_session(
 
             # Save the current model after each game so training is persisted continuously.
             try:
-                mab.save()                      # Save the model after each game to persist training
-                                                # Note that for neural, the mab is trained every games, but the neural behing it every X games
-                _save_checkpoint(game_id + 1)
+                mab.save()
             except Exception as e:
                 print(f"[Worker {worker_tag}] Warning: could not save model after game {game_id + 1}: {e}")
 
@@ -315,7 +298,6 @@ if __name__ == "__main__":
     parser.add_argument("--agent-stockfish-level", type=int, default=10)
     parser.add_argument("--opponent-stockfish-level", type=int, default=None)
     parser.add_argument("--time-control", type=int, default=60)
-    parser.add_argument("--checkpoint-interval", type=int, default=10)
     parser.add_argument("--bandit-type", default="basic_linucb", choices=["basic_linucb", "neural_linucb"])
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--force-cpu", action="store_true")
@@ -338,5 +320,4 @@ if __name__ == "__main__":
         bandit_type=args.bandit_type,
         bandit_config=bandit_config,
         simulate=args.simulate,
-        checkpoint_interval=args.checkpoint_interval,
     )

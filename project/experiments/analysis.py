@@ -1,5 +1,4 @@
 import argparse
-import math
 import sys
 from pathlib import Path
 
@@ -7,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-# Script used to analyse training logs and checkpoint benchmark results.
+# Script used to analyse training logs and training progress.
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -140,12 +139,16 @@ def _segment_summary(df, games_per_segment):
         if games.empty:
             continue
         segment_moves = df[df["game"].isin(games["game"])]
+        total_games = max(1, int(len(games)))
         rows.append({
             "games": f"{start + 1}-{end + 1}",
             "logged_games": int(len(games)),
             "wins": int((games["result"] == "1-0").sum()),
             "draws": int((games["result"] == "1/2-1/2").sum()),
             "losses": int((games["result"] == "0-1").sum()),
+            "win_rate": round(float((games["result"] == "1-0").sum()) / total_games, 3),
+            "draw_rate": round(float((games["result"] == "1/2-1/2").sum()) / total_games, 3),
+            "loss_rate": round(float((games["result"] == "0-1").sum()) / total_games, 3),
             "score_rate": round(float(games["score"].mean()), 3),
             "mab_flag_rate": round(float(games["mab_flagged"].mean()), 3),
             "opponent_flag_rate": round(float(games["opponent_flagged"].mean()), 3),
@@ -164,28 +167,79 @@ def _segment_summary(df, games_per_segment):
     return pd.DataFrame(rows)
 
 
-def _exploration_table(df, window_games):
-    arm_share = _arm_share_by_game(df)
-    table = pd.DataFrame(index=arm_share.index)
-    table["exploration_entropy"] = arm_share.apply(_normalized_entropy, axis=1)
-    table["exploitation_concentration"] = 1.0 - table["exploration_entropy"]
-    table["max_arm_share"] = arm_share.max(axis=1)
-    table["dominant_arm"] = arm_share.idxmax(axis=1)
-    table["exploration_entropy_roll"] = (
-        table["exploration_entropy"].rolling(window_games, min_periods=1).mean()
-    )
-    table["exploitation_concentration_roll"] = (
-        table["exploitation_concentration"].rolling(window_games, min_periods=1).mean()
-    )
-    return table.reset_index().rename(columns={"index": "game"})
+def _training_health_summary(per_game, window_games):
+    if per_game.empty:
+        return {}
+
+    window = max(1, min(int(window_games), len(per_game)))
+    early = per_game.head(window)
+    recent = per_game.tail(window)
+
+    def _rates(frame):
+        total = max(1, len(frame))
+        win_rate = float((frame["result"] == "1-0").sum()) / total
+        draw_rate = float((frame["result"] == "1/2-1/2").sum()) / total
+        loss_rate = float((frame["result"] == "0-1").sum()) / total
+        score_rate = float(frame["score"].mean()) if "score" in frame else np.nan
+        reward_rate = float(frame["mean_reward"].mean()) if "mean_reward" in frame else np.nan
+        move_reward_rate = (
+            float(frame["mean_move_reward"].mean())
+            if "mean_move_reward" in frame and frame["mean_move_reward"].notna().any()
+            else np.nan
+        )
+        return {
+            "win_rate": round(win_rate, 3),
+            "draw_rate": round(draw_rate, 3),
+            "loss_rate": round(loss_rate, 3),
+            "score_rate": round(score_rate, 3),
+            "mean_reward": round(reward_rate, 4),
+            "mean_move_reward": round(move_reward_rate, 4) if pd.notna(move_reward_rate) else None,
+        }
+
+    early_rates = _rates(early)
+    recent_rates = _rates(recent)
+    delta_score = round(recent_rates["score_rate"] - early_rates["score_rate"], 3)
+    delta_reward = round(recent_rates["mean_reward"] - early_rates["mean_reward"], 4)
+
+    if delta_score >= 0.05 and delta_reward >= 0:
+        status = "improving"
+    elif delta_score <= -0.05 and delta_reward <= 0:
+        status = "declining"
+    elif abs(delta_score) <= 0.03 and abs(delta_reward) <= 0.02:
+        status = "stable"
+    else:
+        status = "mixed"
+
+    return {
+        "window_games": window,
+        "early": early_rates,
+        "recent": recent_rates,
+        "delta": {
+            "score_rate": delta_score,
+            "mean_reward": delta_reward,
+            "win_rate": round(recent_rates["win_rate"] - early_rates["win_rate"], 3),
+            "draw_rate": round(recent_rates["draw_rate"] - early_rates["draw_rate"], 3),
+            "loss_rate": round(recent_rates["loss_rate"] - early_rates["loss_rate"], 3),
+        },
+        "status": status,
+    }
 
 
 def _print_tables(df, games_per_segment, window_games):
     summary = summarize_training_logs(df)
+    health = summary.get("training_health", {})
     print("\nLoaded rows:")
     print(len(df))
     print("\nShared summary:")
     print(summary["stats"])
+
+    if summary.get("outcome_counts"):
+        print("\nOverall outcomes:")
+        print(summary["outcome_counts"])
+
+    if summary.get("outcome_rates"):
+        print("\nOverall outcome rates:")
+        print(summary["outcome_rates"])
 
     print("\nAverage reward:")
     print(round(float(df["reward"].mean()), 5))
@@ -202,72 +256,67 @@ def _print_tables(df, games_per_segment, window_games):
 
     per_game = _per_game_summary(df)
     if not per_game.empty:
-        print("\nPer-game outcome summary:")
+        print("\nSegment summary:")
+        segment = _segment_summary(df, games_per_segment)
         columns = [
-            "game",
-            "result",
-            "score",
-            "mab_flagged",
-            "opponent_flagged",
-            "mab_moves",
-            "final_white_clock",
+            "games",
+            "logged_games",
+            "wins",
+            "draws",
+            "losses",
+            "win_rate",
+            "draw_rate",
+            "loss_rate",
+            "score_rate",
             "mean_reward",
-            "mean_move_reward",
         ]
-        print(per_game[columns].round(4).to_string(index=False))
+        print(segment[columns].to_string(index=False))
 
+    if health:
+        print(f"\nTraining health ({health['window_games']} game window):")
+        print(f"Status: {health['status']}")
+        print(f"Early:  {health['early']}")
+        print(f"Recent: {health['recent']}")
+        print(f"Delta:  {health['delta']}")
+
+
+def _plot_outcome_rates(df, output_dir, show, games_per_segment):
     segment = _segment_summary(df, games_per_segment)
-    if not segment.empty:
-        print(f"\nSegment summary ({games_per_segment} games):")
-        print(segment.to_string(index=False))
-
-    exploration = _exploration_table(df, window_games)
-    print("\nExploration vs exploitation proxy:")
-    print(
-        exploration[
-            [
-                "game",
-                "exploration_entropy",
-                "exploitation_concentration",
-                "max_arm_share",
-                "dominant_arm",
-            ]
-        ].round(3).to_string(index=False)
-    )
-    print(
-        "\nNote: this is a policy-diversity proxy. Exact UCB exploration would require logging "
-        "per-arm UCB scores or uncertainty at move time."
-    )
-
-
-def _plot_outcomes(df, output_dir, show):
-    per_game = _per_game_summary(df)
-    if per_game.empty:
+    if segment.empty:
         return
-    fig, ax1 = plt.subplots(figsize=(12, 5))
-    ax1.plot(per_game["game"] + 1, per_game["score"], marker="o", label="Game score")
-    ax1.set_ylim(-0.05, 1.05)
-    ax1.set_xlabel("Training game")
-    ax1.set_ylabel("Score (win=1, draw=0.5, loss=0)")
-    ax1.grid(alpha=0.3)
 
-    ax2 = ax1.twinx()
-    ax2.step(
-        per_game["game"] + 1,
-        per_game["mab_flagged"].astype(int),
-        where="mid",
-        color="#d62728",
-        alpha=0.5,
-        label="MAB flagged",
-    )
+    x = np.arange(len(segment))
+    labels = segment["games"].tolist()
+    fig, ax = plt.subplots(figsize=(13, 6))
+
+    bottom = np.zeros(len(segment))
+    palette = [
+        ("loss_rate", "Loss rate", "#d62728"),
+        ("draw_rate", "Draw rate", "#ff7f0e"),
+        ("win_rate", "Win rate", "#2ca02c"),
+    ]
+    for column, label, color in palette:
+        values = segment[column].astype(float).to_numpy()
+        ax.bar(x, values, bottom=bottom, label=label, color=color, alpha=0.9)
+        bottom += values
+
+    ax.set_ylim(0, 1.05)
+    ax.set_xlabel(f"Training segment ({games_per_segment} games per segment)")
+    ax.set_ylabel("Outcome rate")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=45, ha="right")
+    ax.grid(axis="y", alpha=0.3)
+
+    ax2 = ax.twinx()
+    ax2.plot(x, segment["score_rate"], marker="o", color="#1f77b4", linewidth=2.5, label="Average score")
     ax2.set_ylim(-0.05, 1.05)
-    ax2.set_ylabel("Flag")
+    ax2.set_ylabel("Average score (win=1, draw=0.5, loss=0)")
 
-    lines, labels = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines + lines2, labels + labels2, loc="best")
-    ax1.set_title("Training outcomes and flags")
-    _save_or_show(fig, output_dir, "training_outcomes.png", show=show)
+    lines, labels_left = ax.get_legend_handles_labels()
+    lines2, labels_right = ax2.get_legend_handles_labels()
+    ax.legend(lines + lines2, labels_left + labels_right, loc="upper right")
+    ax.set_title("Outcome rates by training segment")
+    _save_or_show(fig, output_dir, "outcome_rates_by_segment.png", show=show)
 
 
 def _plot_rewards(df, output_dir, show, window_games):
@@ -276,9 +325,9 @@ def _plot_rewards(df, output_dir, show, window_games):
         return
     fig, ax = plt.subplots(figsize=(12, 5))
     x = per_game["game"] + 1
-    ax.plot(x, per_game["mean_reward"], marker="o", label="Mean total reward")
+    ax.plot(x, per_game["mean_reward"], marker="o", label="Per-game mean reward")
     if "mean_move_reward" in per_game.columns and per_game["mean_move_reward"].notna().any():
-        ax.plot(x, per_game["mean_move_reward"], marker="o", label="Mean move_reward")
+        ax.plot(x, per_game["mean_move_reward"], marker="o", label="Per-game mean move reward")
     ax.plot(
         x,
         per_game["mean_reward"].rolling(window_games, min_periods=1).mean(),
@@ -289,159 +338,70 @@ def _plot_rewards(df, output_dir, show, window_games):
     ax.axhline(0, color="black", linewidth=0.8)
     ax.set_xlabel("Training game")
     ax.set_ylabel("Reward")
-    ax.set_title("Per-game reward diagnostics")
+    ax.set_title("Agent reward evolution")
     ax.legend()
     ax.grid(alpha=0.3)
     _save_or_show(fig, output_dir, "reward_by_game.png", show=show)
 
 
-def _plot_arm_usage(df, output_dir, show):
-    arm_share = _arm_share_by_game(df)
-    fig, ax = plt.subplots(figsize=(12, 5))
-    arm_share.index = arm_share.index + 1
-    arm_share.plot.area(ax=ax, stacked=True, alpha=0.85)
-    ax.set_xlabel("Training game")
-    ax.set_ylabel("Arm share")
-    ax.set_ylim(0, 1)
-    ax.set_title("Arm usage share per game")
-    ax.grid(alpha=0.25)
-    ax.legend(title="Arm", loc="upper right")
-    _save_or_show(fig, output_dir, "arm_usage_share.png", show=show)
+def _plot_training_health(df, output_dir, show, window_games):
+    per_game = _per_game_summary(df)
+    if per_game.empty:
+        return
 
+    health = _training_health_summary(per_game, window_games)
+    x = per_game["game"] + 1
+    rolling = per_game[["score", "mean_reward"]].rolling(window_games, min_periods=1).mean()
+    if "mean_move_reward" in per_game.columns and per_game["mean_move_reward"].notna().any():
+        rolling["mean_move_reward"] = per_game["mean_move_reward"].rolling(
+            window_games,
+            min_periods=1,
+        ).mean()
 
-def _plot_exploration_vs_exploitation(df, output_dir, show, window_games):
-    exploration = _exploration_table(df, window_games)
-    fig, ax = plt.subplots(figsize=(12, 5))
-    x = exploration["game"] + 1
-    ax.plot(
-        x,
-        exploration["exploration_entropy"],
-        marker="o",
-        alpha=0.35,
-        label="Exploration proxy (arm entropy)",
-    )
-    ax.plot(
-        x,
-        exploration["exploitation_concentration"],
-        marker="o",
-        alpha=0.35,
-        label="Exploitation proxy (1 - entropy)",
-    )
-    ax.plot(
-        x,
-        exploration["exploration_entropy_roll"],
-        linewidth=3,
-        label=f"Exploration rolling mean ({window_games} games)",
-    )
-    ax.plot(
-        x,
-        exploration["exploitation_concentration_roll"],
-        linewidth=3,
-        label=f"Exploitation rolling mean ({window_games} games)",
-    )
-    ax.set_ylim(-0.05, 1.05)
-    ax.set_xlabel("Training game")
-    ax.set_ylabel("Proxy value")
-    ax.set_title("Exploration vs exploitation proxy")
-    ax.legend()
-    ax.grid(alpha=0.3)
-    _save_or_show(fig, output_dir, "exploration_vs_exploitation.png", show=show)
+    win_rate = per_game["result"].eq("1-0").rolling(window_games, min_periods=1).mean()
+    draw_rate = per_game["result"].eq("1/2-1/2").rolling(window_games, min_periods=1).mean()
+    loss_rate = per_game["result"].eq("0-1").rolling(window_games, min_periods=1).mean()
 
-    fig2, ax2 = plt.subplots(figsize=(12, 4))
-    ax2.plot(x, exploration["max_arm_share"], marker="o", color="#9467bd")
-    ax2.set_ylim(0, 1.05)
-    ax2.set_xlabel("Training game")
-    ax2.set_ylabel("Max arm share")
-    ax2.set_title("Policy concentration by game")
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 9), sharex=True)
+    fig.suptitle(
+        f"Training health overview - {health.get('status', 'unknown').title()}",
+        y=0.98,
+    )
+
+    ax1.plot(x, win_rate, color="#2ca02c", label=f"Win rate ({window_games}-game rolling)")
+    ax1.plot(x, draw_rate, color="#ff7f0e", label=f"Draw rate ({window_games}-game rolling)")
+    ax1.plot(x, loss_rate, color="#d62728", label=f"Loss rate ({window_games}-game rolling)")
+    ax1.set_ylim(-0.05, 1.05)
+    ax1.set_ylabel("Outcome rate")
+    ax1.set_title("Rolling outcome rates")
+    ax1.grid(alpha=0.3)
+    ax1.legend(loc="best")
+
+    ax2.plot(x, rolling["mean_reward"], color="#1f77b4", linewidth=2.5, label="Reward rolling mean")
+    if "mean_move_reward" in rolling.columns and rolling["mean_move_reward"].notna().any():
+        ax2.plot(
+            x,
+            rolling["mean_move_reward"],
+            color="#9467bd",
+            linewidth=2,
+            label="Move reward rolling mean",
+        )
+    ax2.set_ylabel("Reward")
     ax2.grid(alpha=0.3)
-    _save_or_show(fig2, output_dir, "policy_concentration.png", show=show)
+    ax2b = ax2.twinx()
+    ax2b.plot(x, rolling["score"], color="#2ca02c", linestyle="--", linewidth=2, label="Score rolling mean")
+    ax2b.set_ylabel("Average score")
+    ax2.set_xlabel("Training game")
 
+    lines, labels = ax2.get_legend_handles_labels()
+    lines2, labels2 = ax2b.get_legend_handles_labels()
+    ax2.legend(lines + lines2, labels + labels2, loc="best")
+    ax2.set_title("Rolling reward and score")
 
-def _find_checkpoint_csv(worker_id, bandit_type):
-    if not worker_id or not bandit_type:
-        return None
-    candidate = BASE_DIR / "logs" / f"checkpoint_evaluation_{bandit_type}_{worker_id}.csv"
-    return candidate if candidate.exists() else None
+    if health:
+        fig.text(0.01, 0.01, f"{health['status'].title()}: {health.get('delta', {})}", fontsize=9)
 
-
-def _plot_checkpoint_evaluation(checkpoint_csv, output_dir, show):
-    if not checkpoint_csv:
-        return
-    path = Path(checkpoint_csv)
-    if not path.is_absolute():
-        path = BASE_DIR / path
-    if not path.exists():
-        print(f"\nCheckpoint CSV not found: {path}")
-        return
-
-    df = pd.read_csv(path)
-    if df.empty:
-        return
-
-    level_column = "opponent_level" if "opponent_level" in df.columns else "level"
-    print("\nCheckpoint evaluation:")
-    columns = [
-        "training_games",
-        level_column,
-        "wins",
-        "losses",
-        "draws",
-        "winrate",
-        "loss_on_time_rate",
-        "mean_plies_to_win",
-        "mean_clock_used_per_win",
-    ]
-    columns = [column for column in columns if column in df.columns]
-    print(df[columns].to_string(index=False))
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-    for level, group in df.groupby(level_column):
-        group = group.sort_values("training_games")
-        ax.plot(group["training_games"], group["winrate"], marker="o", label=f"SF {level}")
-    ax.set_ylim(-0.05, 1.05)
-    ax.set_xlabel("Training games")
-    ax.set_ylabel("Winrate")
-    ax.set_title("Checkpoint winrate by opponent level")
-    ax.legend()
-    ax.grid(alpha=0.3)
-    _save_or_show(fig, output_dir, "checkpoint_winrate.png", show=show)
-
-    if "loss_on_time_rate" in df.columns:
-        fig2, ax2 = plt.subplots(figsize=(10, 5))
-        for level, group in df.groupby(level_column):
-            group = group.sort_values("training_games")
-            ax2.plot(
-                group["training_games"],
-                group["loss_on_time_rate"],
-                marker="o",
-                label=f"SF {level}",
-            )
-        ax2.set_ylim(-0.05, 1.05)
-        ax2.set_xlabel("Training games")
-        ax2.set_ylabel("Loss-on-time rate")
-        ax2.set_title("Checkpoint loss-on-time rate")
-        ax2.legend()
-        ax2.grid(alpha=0.3)
-        _save_or_show(fig2, output_dir, "checkpoint_loss_on_time.png", show=show)
-
-    if "mean_plies_to_win" in df.columns:
-        wins = df[df["mean_plies_to_win"].notna()]
-        if not wins.empty:
-            fig3, ax3 = plt.subplots(figsize=(10, 5))
-            for level, group in wins.groupby(level_column):
-                group = group.sort_values("training_games")
-                ax3.plot(
-                    group["training_games"],
-                    group["mean_plies_to_win"],
-                    marker="o",
-                    label=f"SF {level}",
-                )
-            ax3.set_xlabel("Training games")
-            ax3.set_ylabel("Mean plies to win")
-            ax3.set_title("Checkpoint plies to win")
-            ax3.legend()
-            ax3.grid(alpha=0.3)
-            _save_or_show(fig3, output_dir, "checkpoint_plies_to_win.png", show=show)
+    _save_or_show(fig, output_dir, "training_health.png", show=show)
 
 
 def analyse_results(
@@ -453,7 +413,6 @@ def analyse_results(
     show=True,
     games_per_segment=5,
     window_games=5,
-    checkpoint_csv="auto",
 ):
     df = load_training_logs(
         log_file=log_file,
@@ -469,15 +428,9 @@ def analyse_results(
     output_dir = _resolve_output_dir(output_dir)
 
     _print_tables(df, games_per_segment=games_per_segment, window_games=window_games)
-    _plot_outcomes(df, output_dir, show)
+    _plot_outcome_rates(df, output_dir, show, games_per_segment)
     _plot_rewards(df, output_dir, show, window_games)
-    _plot_arm_usage(df, output_dir, show)
-    _plot_exploration_vs_exploitation(df, output_dir, show, window_games)
-
-    if checkpoint_csv == "auto":
-        checkpoint_csv = _find_checkpoint_csv(worker_id, bandit_type)
-    if checkpoint_csv:
-        _plot_checkpoint_evaluation(checkpoint_csv, output_dir, show)
+    _plot_training_health(df, output_dir, show, window_games)
 
 
 if __name__ == "__main__":
@@ -509,25 +462,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--games-per-segment",
         type=int,
-        default=5,
-        help="Segment size for printed training summaries.",
+        default=10,
+        help="Number of games per segment for outcome charts and summaries.",
     )
     parser.add_argument(
         "--window-games",
         type=int,
-        default=5,
-        help="Rolling window, in games, for exploration/exploitation proxy curves.",
-    )
-    parser.add_argument(
-        "--checkpoint-csv",
-        default="auto",
-        help="Checkpoint evaluation CSV to plot, 'auto' to infer from worker id, or empty to skip.",
+        default=10,
+        help="Rolling window, in games, for reward and health curves.",
     )
     args = parser.parse_args()
-
-    checkpoint_csv = args.checkpoint_csv
-    if checkpoint_csv == "":
-        checkpoint_csv = None
 
     analyse_results(
         log_file=args.log_file,
@@ -538,5 +482,4 @@ if __name__ == "__main__":
         show=not args.no_show,
         games_per_segment=args.games_per_segment,
         window_games=args.window_games,
-        checkpoint_csv=checkpoint_csv,
     )

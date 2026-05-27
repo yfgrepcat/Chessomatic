@@ -311,7 +311,6 @@ def run_train():
             time_control=time_control,
             bandit_type=bandit_type,
             bandit_config=bandit_config,
-            checkpoint_interval=int(data.get("checkpoint_interval", 10)),
             progress_callback=update_training_progress,
         )
         training_state["is_training"] = False
