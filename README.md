@@ -24,16 +24,40 @@ python project/gui/app.py
 
 ## Run training 
 
-### Basic LinUCB
+### Basic LinUCB : Stockfish niveau 3, 100 parties
 
 ```bash
-python project/experiments/training.py --bandit-type basic_linucb  --total-games 100 --worker-id runtest_yo
+python project/experiments/training.py --bandit-type basic_linucb  --total-games 100 --worker-id worker_p100_sf3_basic
 ```
 
-### Neural LinUCB 
+### Neural LinUCB : Stockfish niveau 3, 100 parties
 
 ```bash
-python project/experiments/training.py --bandit-type neural_linucb  --total-games 100 --worker-id runtest_yo_neural
+python project/experiments/training.py --bandit-type basic_linucb  --total-games 100 --worker-id worker_p100_sf3_neural
+```
+
+### Basic LinUCB : Stockfish niveau 3, 700 parties
+
+```bash
+python project/experiments/training.py --bandit-type basic_linucb  --total-games 450 --worker-id worker_p450_sf3_basic
+```
+
+### Neural LinUCB : Stockfish niveau 3, 700 parties
+
+```bash
+python project/experiments/training.py --bandit-type basic_linucb  --total-games 450 --worker-id worker_p450_sf3_neural
+```
+
+### Basic LinUCB : Stockfish niveau 10, 700 parties
+
+```bash
+python project/experiments/training.py --bandit-type basic_linucb  --total-games 450 --worker-id worker_p450_sf10_basic --stockfish-level 10
+```
+
+### Neural LinUCB : Stockfish niveau 10, 700 parties
+
+```bash
+python project/experiments/training.py --bandit-type neural_linucb  --total-games 450 --worker-id worker_p450_sf10_neural --stockfish-level 10
 ```
 
 ## Run Benchmark 
