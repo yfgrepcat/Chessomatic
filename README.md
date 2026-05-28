@@ -1,4 +1,46 @@
-# Chessomatic
+# Echec et MAB ! (Chessomatic)
+
+
+<p align="center">
+	<img src="rsc/img/echec_et_mab.webp" alt="LinUCB vs Stockfish" width="220"/>
+</p>
+
+An approach to enhancing chess engine performance using Multi-Armed Bandits (MAB) in a time-constrained game of chess. This project implements both a basic LinUCB and a neural LinUCB agent, trained against Stockfish at various difficulty levels.
+
+## Features used
+
+1. **Number of legal moves:** Measures freedom of movement and positional complexity. A position with very few legal moves is often critical, whereas a more open position demands more evaluation.
+2. **Remaining time ratio:** Indicates urgency relative to the opponent. Knowing that only $10\%$ of the time remains should push the agent to favor exploiting the fastest arms, regardless of board complexity.
+3. **Game progression:** Evaluates the number of moves played to situate the maturity of the game. This helps identify the phase — opening, middlegame, or endgame — so as not to waste time on theoretical moves.
+4. **Material balance:** Determines whether the position is asymmetric or whether the agent needs to force matters.
+5. **Endgame phase:** Identifies the rarefaction of pieces, where time blunders are fatal. Precise calculation often becomes more important than intuition.
+6. **King in check:** Signals an immediate crisis requiring a forced response.
+7. **Possible captures:** Evaluates the immediate tactical tension on the board. The agent then immediately understands whether the slightest misstep would be fatal.
+
+
+## Reward function
+
+The reward function is the agent's only "compass": it mathematically translates what good behavior is — namely, finding excellent moves, but as quickly as possible. To model this problem, the reward is split into two components: a per-move reward and a terminal end-of-game reward.
+
+$$R = \Delta\text{WDL} - \text{time\_penalty}$$
+
+$$R = \Delta\text{WDL} - 0.015 \times \min\!\left(\frac{\text{elapsed\_time}}{1.5},\ 1\right)$$
+
+Where WDL (Win/Draw/Loss) is the win probability computed by Stockfish before and after the move. Move quality is measured by **$\Delta\text{WDL}$** (positional improvement), then a time penalty is applied. The parameter choices are deliberate: **$\Delta\text{WDL}$** is bounded between -1 and 1, and the time penalty is capped via the `min` so that it does not dominate the entire signal and force the agent to constantly play too fast.
+
+
+
+## Results
+
+In one of our training runs, the basic LinUCB agent used a stockfish level 10 model and trained against a stockfish level 10 for 300 games. We can clearly see a net increase in both win-rate and mean game time.
+
+<p align="center">
+    <img src="rsc/img/stockfish_lvl10_vs_lvl10.webp" alt="LinUCB Win Rate" width="600"/>
+</p>
+
+Multiple models and statistics analyses can be found in the `project/logs/` directory, and the generated learning curves are in `project/analysis/`.
+
+The training process allowed us to improve the MAB agent's performance against Stockfish, demonstrating the potential of MAB algorithms in optimizing decision-making under time constraints in chess. The results indicate that the agent can learn to select better moves over time and learns the crucial importance of time management in chess, as evidenced by the lowering of the mean game time.
 
 ## Setup
 
